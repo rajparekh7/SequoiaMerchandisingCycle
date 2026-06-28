@@ -1,0 +1,30 @@
+{
+  "name": "sequoia-merchandising-cycle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Diagnose why growth stalled — scores a company website against the Sequoia Merchandising Cycle.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --test src/engine/__tests__/*.test.ts src/crawl/__tests__/*.test.ts",
+    "demo": "node scripts/demo.ts",
+    "analyze": "node scripts/analyze.ts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "comment": "The engine (src/engine, src/crawl) and tests run on Node 24's native TS type-stripping with ZERO dependencies — `npm test` and `npm run demo` work before `npm install`. The deps below are only for the Next.js web app. The engine calls the Anthropic + Firecrawl REST APIs via fetch, so no provider SDK is required.",
+  "dependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.6.0"
+  }
+}
