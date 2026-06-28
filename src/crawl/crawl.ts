@@ -49,6 +49,10 @@ async function mapLimit<T, R>(
 
 // Lower rank = scraped first / survives the page cap. The diagnosis leans hardest on
 // homepage, pricing, and about, so they win ties.
+// Common high-value paths to probe directly in case /map misses them (see crawlSite).
+// Kept to structural pages whose absence would otherwise wrongly red-flag a stage.
+const COMMON_PATHS = ["pricing", "about", "company", "product", "customers", "docs"] as const;
+
 const TYPE_RANK: Record<PageType, number> = {
   homepage: 0,
   pricing: 1,
@@ -135,28 +139,38 @@ export async function crawlSite(args: {
   const { rootUrl, fetcher, options } = args;
   const root = normalize(rootUrl);
 
-  let candidates: string[] = [];
+  let mapCandidates: string[] = [];
   let mapFailed = false;
   try {
-    candidates = await fetcher.map(root);
+    mapCandidates = await fetcher.map(root);
   } catch {
     mapFailed = true;
   }
 
-  const urls = selectUrls(root, candidates, options);
+  // Seed discovery with common high-value paths. Firecrawl /map (especially on JS-heavy
+  // sites) routinely misses structural pages like /pricing and /about — and a page that's
+  // never discovered gets scored as ABSENT, producing false "red" stages. Probing these
+  // guarantees we at least attempt them.
+  const probes = COMMON_PATHS.map((p) => normalize(new URL(`/${p}`, root).toString()));
+  const mapSet = new Set(mapCandidates.map(normalize));
+
+  const urls = selectUrls(root, [...mapCandidates, ...probes], options);
   const scraped = await mapLimit(urls, options?.concurrency ?? 5, (u) =>
     fetcher.scrape(u).catch(() => null),
   );
 
   // Only an ESSENTIAL page failing should lower confidence — a dropped blog post or careers
-  // page shouldn't stamp "partial" (low confidence) on stages it never fed into.
+  // page shouldn't stamp "partial" on stages it never fed into. And a speculative PROBE that
+  // 404s just means the page doesn't exist there, so it shouldn't flag partial either —
+  // only count failures for pages that were actually discovered in the map.
   const ESSENTIAL: ReadonlySet<PageType> = new Set(["homepage", "pricing", "about", "product"]);
   const pages: CrawledPage[] = [];
   let essentialFailure = false;
   for (let i = 0; i < urls.length; i++) {
     const s = scraped[i];
     if (!s) {
-      if (ESSENTIAL.has(typeFromUrl(urls[i]!, root))) essentialFailure = true;
+      const u = urls[i]!;
+      if (mapSet.has(u) && ESSENTIAL.has(typeFromUrl(u, root))) essentialFailure = true;
       continue;
     }
     pages.push({

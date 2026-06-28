@@ -100,9 +100,14 @@ const productMarketing: StageHeuristic = (pages) => {
     high = Math.min(high, 70);
     reasons.push("No clear homepage H1 detected — Product Marketing capped at 70.");
   }
-  // Messaging consistency: how many distinct nouns describe "the thing".
+  // Messaging consistency: how many distinct nouns describe "the thing". Scan only CORE
+  // marketing pages — a content-heavy blog naturally uses varied vocabulary and shouldn't
+  // count as inconsistent positioning (this was firing false positives on large sites).
+  const corePages = pages.filter(
+    (p) => p.type === "homepage" || p.type === "product" || p.type === "case_study",
+  );
   const nouns = ["platform", "solution", "tool", "software", "app"].filter((n) =>
-    anyMatch(pages, new RegExp(`\\b${n}\\b`, "i")),
+    anyMatch(corePages, new RegExp(`\\b${n}\\b`, "i")),
   );
   if (nouns.length >= 3) {
     high = Math.min(high, 75);

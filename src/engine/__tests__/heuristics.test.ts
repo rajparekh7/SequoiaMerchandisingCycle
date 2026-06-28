@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { bandFor } from "../heuristics.ts";
 import { STAGES } from "../types.ts";
+import type { CrawledPage } from "../types.ts";
 import { acme, brokenco, midco } from "../../fixtures/sites.ts";
 
 test("no pricing page hard-caps Sales at 50", () => {
@@ -30,6 +31,18 @@ test("inconsistent product noun + long H1 + no case studies caps Product Marketi
   assert.ok(
     band.reasons.some((r) => /different ways/i.test(r)),
     "expected an inconsistent-noun reason",
+  );
+});
+
+test("noun inconsistency is judged on core pages, not the blog (Ramp.com false-positive)", () => {
+  const pages: CrawledPage[] = [
+    { url: "https://x.com/", type: "homepage", markdown: "# Welcome\nOur platform helps teams move money." },
+    { url: "https://x.com/blog/a", type: "blog_post", markdown: "Our tool, software, solution, and app all help." },
+  ];
+  const band = bandFor("product_marketing", pages);
+  assert.ok(
+    !band.reasons.some((r) => /different ways/i.test(r)),
+    "varied blog vocabulary must not flag inconsistent positioning",
   );
 });
 

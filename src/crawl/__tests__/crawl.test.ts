@@ -73,6 +73,36 @@ test("crawlSite flags a partial crawl when an ESSENTIAL page fails to scrape", a
   assert.equal(partialCrawl, true);
 });
 
+test("crawlSite probes common paths even when /map misses them", async () => {
+  // map returns nothing, but /pricing exists — probing must still recover it, so the page
+  // isn't wrongly scored as absent (the Ramp.com failure mode).
+  const fetcher: PageFetcher = {
+    async map() {
+      return [];
+    },
+    async scrape(url: string) {
+      if (url === "https://x.com/") return { url, markdown: "# Home" };
+      if (url === "https://x.com/pricing") return { url, markdown: "## Pricing\n$10 per month" };
+      return null;
+    },
+  };
+  const { pages } = await crawlSite({ rootUrl: ROOT, fetcher });
+  assert.ok(pages.some((p) => p.type === "pricing"), "pricing recovered via probe despite empty map");
+});
+
+test("a probe that 404s does not flag a partial crawl", async () => {
+  const fetcher: PageFetcher = {
+    async map() {
+      return [];
+    },
+    async scrape(url: string) {
+      return url === "https://x.com/" ? { url, markdown: "# Home" } : null;
+    },
+  };
+  const { partialCrawl } = await crawlSite({ rootUrl: ROOT, fetcher });
+  assert.equal(partialCrawl, false, "speculative probe misses shouldn't lower confidence");
+});
+
 test("crawlSite does NOT flag partial when only an OPTIONAL page fails", async () => {
   const fetcher = new MockFetcher({
     "https://x.com/": "# Home",
