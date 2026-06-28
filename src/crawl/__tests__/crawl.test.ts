@@ -61,14 +61,27 @@ test("crawlSite scrapes, classifies, and reports a full crawl when everything su
   assert.deepEqual(types, ["about", "homepage", "pricing"]);
 });
 
-test("crawlSite flags a partial crawl when a page fails to scrape", async () => {
+test("crawlSite flags a partial crawl when an ESSENTIAL page fails to scrape", async () => {
   const fetcher = new MockFetcher({
     "https://x.com/": "# Home",
-    "https://x.com/pricing": "", // markdown "" → scrape returns null elsewhere; here force a miss
+    "https://x.com/pricing": "x",
   });
-  // Override scrape to fail the pricing page specifically.
+  // Fail the pricing page (essential) specifically.
   fetcher.scrape = async (url: string) =>
     url.endsWith("/pricing") ? null : { url, markdown: "# Home" };
   const { partialCrawl } = await crawlSite({ rootUrl: ROOT, fetcher });
   assert.equal(partialCrawl, true);
+});
+
+test("crawlSite does NOT flag partial when only an OPTIONAL page fails", async () => {
+  const fetcher = new MockFetcher({
+    "https://x.com/": "# Home",
+    "https://x.com/pricing": "## Pricing $10 per month",
+    "https://x.com/blog/post-1": "## Post",
+  });
+  // Fail only the blog post (optional) — homepage + pricing still succeed.
+  fetcher.scrape = async (url: string) =>
+    url.includes("/blog/") ? null : { url, markdown: "# ok" };
+  const { partialCrawl } = await crawlSite({ rootUrl: ROOT, fetcher });
+  assert.equal(partialCrawl, false);
 });

@@ -148,12 +148,15 @@ export async function crawlSite(args: {
     fetcher.scrape(u).catch(() => null),
   );
 
+  // Only an ESSENTIAL page failing should lower confidence — a dropped blog post or careers
+  // page shouldn't stamp "partial" (low confidence) on stages it never fed into.
+  const ESSENTIAL: ReadonlySet<PageType> = new Set(["homepage", "pricing", "about", "product"]);
   const pages: CrawledPage[] = [];
-  let failures = 0;
+  let essentialFailure = false;
   for (let i = 0; i < urls.length; i++) {
     const s = scraped[i];
     if (!s) {
-      failures++;
+      if (ESSENTIAL.has(typeFromUrl(urls[i]!, root))) essentialFailure = true;
       continue;
     }
     pages.push({
@@ -163,7 +166,7 @@ export async function crawlSite(args: {
     });
   }
 
-  // Partial if the map failed, anything failed to scrape, or we never got the homepage.
-  const partialCrawl = mapFailed || failures > 0 || !pages.some((p) => p.type === "homepage");
+  // Partial if the map failed, an essential page failed to scrape, or we never got the homepage.
+  const partialCrawl = mapFailed || essentialFailure || !pages.some((p) => p.type === "homepage");
   return { pages, partialCrawl };
 }
