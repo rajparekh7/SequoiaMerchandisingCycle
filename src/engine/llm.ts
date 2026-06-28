@@ -59,32 +59,61 @@ export class AnthropicStageScorer implements StageScorer {
   }
 
   async score({ stage, pages, band }: ScoreArgs): Promise<RawStageResult> {
-    const body = buildStageRequest({ stage, pages, band, model: this.model });
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
+    // Degrade ONE stage to the heuristic-band midpoint when its call fails for a transient
+    // reason — so a single hiccup doesn't sink the whole report. Auth failures are NOT
+    // degraded (see below): a bad key affects every stage, and a report full of midpoints
+    // dressed up as real scores is worse than a clear error.
+    const degrade = (reason: string): RawStageResult => ({
+      score: Math.round((band.low + band.high) / 2),
+      evidence: [`Automated scoring was unavailable for this stage (${reason}); used the heuristic-band midpoint. Treat as low confidence.`],
+      bottleneckConfidence: 0.3,
+      rootCauseProbability: 0.3,
     });
-    if (!res.ok) {
-      throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
+
+    const body = buildStageRequest({ stage, pages, band, model: this.model });
+    let res: Response;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": this.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      return degrade("network error");
     }
-    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-    const text = data.content?.find((b) => b.type === "text")?.text ?? "{}";
-    const parsed = JSON.parse(text) as {
-      score: number;
-      evidence: string[];
-      bottleneck_confidence: number;
-      root_cause_probability: number;
-    };
-    return {
-      score: parsed.score,
-      evidence: parsed.evidence ?? [],
-      bottleneckConfidence: parsed.bottleneck_confidence ?? 0,
-      rootCauseProbability: parsed.root_cause_probability ?? 0,
-    };
+
+    // Config errors → fail the whole report with a clear, actionable message.
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`Anthropic auth failed (${res.status}) — check ANTHROPIC_API_KEY.`);
+    }
+    if (!res.ok) return degrade(`API ${res.status}`);
+
+    try {
+      const data = (await res.json()) as {
+        stop_reason?: string;
+        content?: Array<{ type: string; text?: string }>;
+      };
+      if (data.stop_reason === "refusal") return degrade("model refused");
+      const text = data.content?.find((b) => b.type === "text")?.text;
+      if (!text) return degrade("empty response");
+      const parsed = JSON.parse(text) as {
+        score: number;
+        evidence: string[];
+        bottleneck_confidence: number;
+        root_cause_probability: number;
+      };
+      return {
+        score: parsed.score,
+        evidence: parsed.evidence ?? [],
+        bottleneckConfidence: parsed.bottleneck_confidence ?? 0,
+        rootCauseProbability: parsed.root_cause_probability ?? 0,
+      };
+    } catch {
+      return degrade("unparseable response");
+    }
   }
 }
