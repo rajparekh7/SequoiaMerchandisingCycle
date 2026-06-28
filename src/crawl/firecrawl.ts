@@ -7,7 +7,10 @@
 
 import type { PageFetcher, ScrapedPage } from "./crawl.ts";
 
-const BASE = "https://api.firecrawl.dev/v1";
+// Firecrawl REST API v2 (per the agent-onboarding skill, Path E). v2 keeps the same
+// response shape we rely on: scrape → data.markdown + data.metadata.title; map → links[]
+// of objects with a .url field.
+const BASE = "https://api.firecrawl.dev/v2";
 
 export class FirecrawlFetcher implements PageFetcher {
   readonly apiKey: string;
@@ -39,10 +42,13 @@ export class FirecrawlFetcher implements PageFetcher {
     });
     if (!res.ok) return null; // blocked / 4xx / 5xx → treated as a scrape failure (partial crawl)
     const data = (await res.json()) as {
-      data?: { markdown?: string; metadata?: { title?: string } };
+      data?: { markdown?: string; metadata?: { title?: string | string[] } };
     };
     const markdown = data.data?.markdown;
     if (!markdown) return null;
-    return { url, markdown, title: data.data?.metadata?.title };
+    // v2 documents metadata.title as string OR string[] — normalize to a single string.
+    const rawTitle = data.data?.metadata?.title;
+    const title = Array.isArray(rawTitle) ? rawTitle[0] : rawTitle;
+    return { url, markdown, title };
   }
 }
