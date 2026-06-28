@@ -17,25 +17,32 @@ export const maxDuration = 300;
 export async function POST(req: Request): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as { url?: string; demo?: string };
 
-  if (body.demo) {
-    if (!(body.demo in FIXTURES)) {
-      return Response.json({ error: "Unknown sample." }, { status: 400 });
-    }
-    const job = await createJob({ url: `sample:${body.demo}`, mode: "demo" });
-    after(() => runJob(job, body.demo as FixtureName));
-    return Response.json({ id: job.id });
-  }
-
-  let url = body.url?.trim();
-  if (!url) return Response.json({ error: "Enter a URL." }, { status: 400 });
-  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
   try {
-    new URL(url);
-  } catch {
-    return Response.json({ error: "That doesn't look like a valid URL." }, { status: 400 });
-  }
+    if (body.demo) {
+      if (!(body.demo in FIXTURES)) {
+        return Response.json({ error: "Unknown sample." }, { status: 400 });
+      }
+      const job = await createJob({ url: `sample:${body.demo}`, mode: "demo" });
+      after(() => runJob(job, body.demo as FixtureName));
+      return Response.json({ id: job.id });
+    }
 
-  const job = await createJob({ url, mode: "live" });
-  after(() => runJob(job));
-  return Response.json({ id: job.id });
+    let url = body.url?.trim();
+    if (!url) return Response.json({ error: "Enter a URL." }, { status: 400 });
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+    try {
+      new URL(url);
+    } catch {
+      return Response.json({ error: "That doesn't look like a valid URL." }, { status: 400 });
+    }
+
+    const job = await createJob({ url, mode: "live" });
+    after(() => runJob(job));
+    return Response.json({ id: job.id });
+  } catch (e) {
+    // Most likely the job store (Supabase/KV) rejected the write — surface it instead of a
+    // raw 500 so the cause (missing table, wrong key) is visible in the UI and logs.
+    const message = e instanceof Error ? e.message : String(e);
+    return Response.json({ error: `Couldn't start the analysis: ${message}` }, { status: 500 });
+  }
 }

@@ -18,15 +18,22 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = (await res.json()) as { id?: string; error?: string };
+      // A crashed route returns a non-JSON (HTML) 500 — don't let res.json() throw and
+      // mask the real status. Surface the actual server error so it's debuggable in prod.
+      let data: { id?: string; error?: string } = {};
+      try {
+        data = (await res.json()) as { id?: string; error?: string };
+      } catch {
+        /* non-JSON body */
+      }
       if (!res.ok || !data.id) {
-        setError(data.error ?? "Something went wrong.");
+        setError(data.error ?? `Server error (HTTP ${res.status}). Check the deployment logs.`);
         setBusy(false);
         return;
       }
       router.push(`/report/${data.id}`);
     } catch {
-      setError("Network error — is the dev server running?");
+      setError("Couldn't reach the server. Check your connection or the deployment status.");
       setBusy(false);
     }
   }
