@@ -41,7 +41,10 @@ const TTL_SECONDS = 3600;
 
 // ---- Supabase (PostgREST) ----
 function supabaseBackend(url: string, key: string): Backend {
-  const endpoint = `${url.replace(/\/+$/, "")}/rest/v1/jobs`;
+  // Build the REST path with `new URL` and an absolute path so the result is always
+  // https://<host>/rest/v1/jobs regardless of a trailing slash, an accidental "/rest/v1"
+  // suffix, or stray whitespace in SUPABASE_URL (any of which yields PGRST125 "invalid path").
+  const endpoint = new URL("/rest/v1/jobs", url.trim()).toString();
   const headers = {
     apikey: key,
     authorization: `Bearer ${key}`,
