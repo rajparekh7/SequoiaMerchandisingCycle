@@ -1,10 +1,11 @@
-// The async job worker (PRD §6.2). Drives crawl → analyze and streams coarse progress into
-// the job store, which the report page polls. Two modes:
-//   - demo: fixture pages + deterministic MockStageScorer (no keys, for the live demo §11 Q5)
+// The async job worker (PRD §6.2). Crawl → analyze, writing coarse progress milestones to
+// the (KV-backed) job store that the report page polls. Two modes:
+//   - demo: fixture pages + deterministic MockStageScorer (no keys; live-demo seeds §11 Q5)
 //   - live: Firecrawl crawl + Claude scoring (needs ANTHROPIC_API_KEY + FIRECRAWL_API_KEY)
 //
-// In V1 this runs in-process, kicked off (not awaited) by the POST route. Production moves
-// it to a real queue/worker so it survives serverless function lifecycles.
+// Progress is written at sequential, awaited milestones (not via the engine's parallel
+// per-stage onProgress hook) so concurrent read-modify-write updates can't clobber the
+// final report in KV. On Vercel this runs inside `after()` so it survives the response.
 
 import { crawlSite } from "../crawl/crawl.ts";
 import { FirecrawlFetcher } from "../crawl/firecrawl.ts";
@@ -27,54 +28,52 @@ export async function runJob(jobId: string, opts: RunOpts): Promise<void> {
     if (opts.mode === "demo") {
       const name: FixtureName = opts.demoName ?? "acme";
       const pages = FIXTURES[name];
-      updateJob(jobId, { step: "Crawling site" });
+      await updateJob(jobId, { step: "Crawling site" });
       await sleep(500);
-      updateJob(jobId, { step: "Routing pages" });
-      await sleep(400);
+      await updateJob(jobId, { step: "Scoring five stages" });
+      await sleep(500);
       const report = await analyze({
         url: pages[0]!.url,
         pages,
         scorer: new MockStageScorer(),
         generatedAt: new Date().toISOString(),
-        onProgress: (label) => updateJob(jobId, { step: label }),
       });
-      updateJob(jobId, { step: "Generating recommendations" });
+      await updateJob(jobId, { step: "Generating recommendations" });
       await sleep(300);
-      updateJob(jobId, { status: "done", step: "Done", report });
+      await updateJob(jobId, { status: "done", step: "Done", report });
       return;
     }
 
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const firecrawlKey = process.env.FIRECRAWL_API_KEY;
     if (!anthropicKey || !firecrawlKey) {
-      updateJob(jobId, {
+      await updateJob(jobId, {
         status: "error",
         error: "Live analysis needs ANTHROPIC_API_KEY and FIRECRAWL_API_KEY. Try a sample report instead.",
       });
       return;
     }
 
-    updateJob(jobId, { step: "Crawling site" });
+    await updateJob(jobId, { step: "Crawling site" });
     const { pages, partialCrawl } = await crawlSite({
       rootUrl: opts.url,
       fetcher: new FirecrawlFetcher(firecrawlKey),
     });
     if (pages.length === 0) {
-      updateJob(jobId, { status: "error", error: "Could not crawl any pages from that URL." });
+      await updateJob(jobId, { status: "error", error: "Could not crawl any pages from that URL." });
       return;
     }
 
-    updateJob(jobId, { step: `Scoring ${pages.length} pages` });
+    await updateJob(jobId, { step: `Scoring ${pages.length} pages across five stages` });
     const report = await analyze({
       url: opts.url,
       pages,
       scorer: new AnthropicStageScorer(anthropicKey),
       generatedAt: new Date().toISOString(),
       partialCrawl,
-      onProgress: (label) => updateJob(jobId, { step: label }),
     });
-    updateJob(jobId, { status: "done", step: "Done", report });
+    await updateJob(jobId, { status: "done", step: "Done", report });
   } catch (e) {
-    updateJob(jobId, { status: "error", error: e instanceof Error ? e.message : String(e) });
+    await updateJob(jobId, { status: "error", error: e instanceof Error ? e.message : String(e) });
   }
 }

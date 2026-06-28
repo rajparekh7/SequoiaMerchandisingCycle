@@ -100,6 +100,27 @@ src/jobs/
 The in-memory job store means share links are process-local in V1 (they die on restart) —
 production persistence is the Supabase swap noted below.
 
+## Deploy to Vercel
+
+The app is serverless-ready: the job store uses **Vercel KV (Upstash Redis)** in production
+(shared across function instances) and an in-memory fallback locally, and the background
+worker runs via Next's `after()` so it survives the response.
+
+1. **Import the repo.** Vercel → Add New → Project → import this GitHub repo. Next.js is
+   auto-detected; deploy.
+2. **Attach KV.** Vercel → Storage → Create → KV / Upstash Redis → connect to the project.
+   This injects `KV_REST_API_URL` + `KV_REST_API_TOKEN` automatically. Redeploy.
+   **Without KV the async flow won't work on serverless** (POST and the polling GET land on
+   different instances) — sample reports would hang. KV is the one required add-on.
+3. **(Live URLs only)** add `ANTHROPIC_API_KEY` + `FIRECRAWL_API_KEY` in Project Settings →
+   Environment Variables. Sample reports need neither.
+
+CLI alternative: `vercel` (link/first deploy) then `vercel --prod`.
+
+> `maxDuration` is set to 60s on the analyze route (Hobby ceiling). Live runs of large sites
+> (crawl + 5 LLM calls) can approach it; the async job model is what V2's queue/streaming
+> upgrade addresses.
+
 ## Going live
 
 Crawl and score are both decoupled from I/O behind interfaces (`PageFetcher`,

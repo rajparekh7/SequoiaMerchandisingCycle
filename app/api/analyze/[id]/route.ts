@@ -9,7 +9,7 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const { id } = await ctx.params;
-  const job = getJob(id);
+  const job = await getJob(id);
   if (!job) return Response.json({ error: "Report not found." }, { status: 404 });
 
   return Response.json({
