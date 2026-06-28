@@ -1,11 +1,11 @@
 // The async job worker (PRD §6.2). Crawl → analyze, writing coarse progress milestones to
-// the (KV-backed) job store that the report page polls. Two modes:
+// the (KV-backed) job store that the report page polls. Two modes (from job.mode):
 //   - demo: fixture pages + deterministic MockStageScorer (no keys; live-demo seeds §11 Q5)
 //   - live: Firecrawl crawl + Claude scoring (needs ANTHROPIC_API_KEY + FIRECRAWL_API_KEY)
 //
-// Progress is written at sequential, awaited milestones (not via the engine's parallel
-// per-stage onProgress hook) so concurrent read-modify-write updates can't clobber the
-// final report in KV. On Vercel this runs inside `after()` so it survives the response.
+// The runner owns the job object and persists it wholesale at sequential milestones via
+// saveJob — single SET per milestone, no read-modify-write. On Vercel this runs inside
+// `after()` so it survives the response.
 
 import { crawlSite } from "../crawl/crawl.ts";
 import { FirecrawlFetcher } from "../crawl/firecrawl.ts";
@@ -13,24 +13,20 @@ import { analyze } from "../engine/analyzer.ts";
 import { AnthropicStageScorer, MockStageScorer } from "../engine/llm.ts";
 import { FIXTURES } from "../fixtures/sites.ts";
 import type { FixtureName } from "../fixtures/sites.ts";
-import { updateJob } from "./store.ts";
+import { saveJob } from "./store.ts";
+import type { Job } from "./store.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export interface RunOpts {
-  url: string;
-  mode: "live" | "demo";
-  demoName?: FixtureName;
-}
-
-export async function runJob(jobId: string, opts: RunOpts): Promise<void> {
+export async function runJob(job: Job, demoName?: FixtureName): Promise<void> {
   try {
-    if (opts.mode === "demo") {
-      const name: FixtureName = opts.demoName ?? "acme";
-      const pages = FIXTURES[name];
-      await updateJob(jobId, { step: "Crawling site" });
+    if (job.mode === "demo") {
+      const pages = FIXTURES[demoName ?? "acme"];
+      job.step = "Crawling site";
+      await saveJob(job);
       await sleep(500);
-      await updateJob(jobId, { step: "Scoring five stages" });
+      job.step = "Scoring five stages";
+      await saveJob(job);
       await sleep(500);
       const report = await analyze({
         url: pages[0]!.url,
@@ -38,42 +34,54 @@ export async function runJob(jobId: string, opts: RunOpts): Promise<void> {
         scorer: new MockStageScorer(),
         generatedAt: new Date().toISOString(),
       });
-      await updateJob(jobId, { step: "Generating recommendations" });
+      job.step = "Generating recommendations";
+      await saveJob(job);
       await sleep(300);
-      await updateJob(jobId, { status: "done", step: "Done", report });
+      job.status = "done";
+      job.step = "Done";
+      job.report = report;
+      await saveJob(job);
       return;
     }
 
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const firecrawlKey = process.env.FIRECRAWL_API_KEY;
     if (!anthropicKey || !firecrawlKey) {
-      await updateJob(jobId, {
-        status: "error",
-        error: "Live analysis needs ANTHROPIC_API_KEY and FIRECRAWL_API_KEY. Try a sample report instead.",
-      });
+      job.status = "error";
+      job.error = "Live analysis needs ANTHROPIC_API_KEY and FIRECRAWL_API_KEY. Try a sample report instead.";
+      await saveJob(job);
       return;
     }
 
-    await updateJob(jobId, { step: "Crawling site" });
+    job.step = "Crawling site";
+    await saveJob(job);
     const { pages, partialCrawl } = await crawlSite({
-      rootUrl: opts.url,
+      rootUrl: job.url,
       fetcher: new FirecrawlFetcher(firecrawlKey),
     });
     if (pages.length === 0) {
-      await updateJob(jobId, { status: "error", error: "Could not crawl any pages from that URL." });
+      job.status = "error";
+      job.error = "Could not crawl any pages from that URL.";
+      await saveJob(job);
       return;
     }
 
-    await updateJob(jobId, { step: `Scoring ${pages.length} pages across five stages` });
+    job.step = `Scoring ${pages.length} pages across five stages`;
+    await saveJob(job);
     const report = await analyze({
-      url: opts.url,
+      url: job.url,
       pages,
       scorer: new AnthropicStageScorer(anthropicKey),
       generatedAt: new Date().toISOString(),
       partialCrawl,
     });
-    await updateJob(jobId, { status: "done", step: "Done", report });
+    job.status = "done";
+    job.step = "Done";
+    job.report = report;
+    await saveJob(job);
   } catch (e) {
-    await updateJob(jobId, { status: "error", error: e instanceof Error ? e.message : String(e) });
+    job.status = "error";
+    job.error = e instanceof Error ? e.message : String(e);
+    await saveJob(job);
   }
 }

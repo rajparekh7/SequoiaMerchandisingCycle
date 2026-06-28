@@ -21,13 +21,10 @@ export interface AnalyzeInput {
   generatedAt: string;
   /** True if the crawl was blocked/slow and pages are incomplete (PRD §4.1). */
   partialCrawl?: boolean;
-  /** Optional progress hook for the async-job status stream (PRD §7.2). Fired as each
-   *  stage resolves; order is non-deterministic because stages score in parallel. */
-  onProgress?: (label: string) => void;
 }
 
 export async function analyze(input: AnalyzeInput): Promise<Report> {
-  const { url, pages, scorer, generatedAt, partialCrawl = false, onProgress } = input;
+  const { url, pages, scorer, generatedAt, partialCrawl = false } = input;
   const confidence: Confidence = partialCrawl ? "partial" : "full";
 
   // Score stages in parallel (5 independent LLM calls), preserving cycle order in output.
@@ -37,7 +34,6 @@ export async function analyze(input: AnalyzeInput): Promise<Report> {
       const routed = routePages(meta.id, pages);
       const raw = await scorer.score({ stage: meta.id, pages: routed, band });
       const score = clampToBand(raw.score, band);
-      onProgress?.(`Scored ${meta.label}`);
       return {
         stage: meta.id,
         score,

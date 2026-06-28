@@ -22,7 +22,7 @@ export async function POST(req: Request): Promise<Response> {
       return Response.json({ error: "Unknown sample." }, { status: 400 });
     }
     const job = await createJob({ url: `sample:${body.demo}`, mode: "demo" });
-    after(() => runJob(job.id, { url: job.url, mode: "demo", demoName: body.demo as FixtureName }));
+    after(() => runJob(job, body.demo as FixtureName));
     return Response.json({ id: job.id });
   }
 
@@ -36,6 +36,6 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const job = await createJob({ url, mode: "live" });
-  after(() => runJob(job.id, { url, mode: "live" }));
+  after(() => runJob(job));
   return Response.json({ id: job.id });
 }

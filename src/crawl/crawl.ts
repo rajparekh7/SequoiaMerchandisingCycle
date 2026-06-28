@@ -25,6 +25,26 @@ export interface PageFetcher {
 export interface CrawlOptions {
   maxPages?: number;
   maxDepth?: number;
+  /** Max simultaneous scrapes — bounded to stay under crawler rate limits (PRD §4.1). */
+  concurrency?: number;
+}
+
+/** Run `fn` over `items` with at most `limit` in flight; results stay in input order. */
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!, i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 // Lower rank = scraped first / survives the page cap. The diagnosis leans hardest on
@@ -124,7 +144,9 @@ export async function crawlSite(args: {
   }
 
   const urls = selectUrls(root, candidates, options);
-  const scraped = await Promise.all(urls.map((u) => fetcher.scrape(u).catch(() => null)));
+  const scraped = await mapLimit(urls, options?.concurrency ?? 5, (u) =>
+    fetcher.scrape(u).catch(() => null),
+  );
 
   const pages: CrawledPage[] = [];
   let failures = 0;

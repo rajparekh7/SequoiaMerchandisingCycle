@@ -9,7 +9,7 @@
 //   No 🔴? The lowest-scoring 🟡 (furthest upstream on ties) is the Priority Fix.
 //   All 🟢? The cycle is healthy publicly.
 
-import { STAGES, stageMeta } from "./types.ts";
+import { stageMeta } from "./types.ts";
 import type { RootCause, StageId, StageScore } from "./types.ts";
 
 function byOrder(a: StageScore, b: StageScore): number {
@@ -81,5 +81,3 @@ export function fixOrder(stages: StageScore[]): StageId[] {
     .sort(byOrder)
     .map((s) => s.stage);
 }
-
-export { STAGES };

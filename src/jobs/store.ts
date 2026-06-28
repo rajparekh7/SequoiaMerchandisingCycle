@@ -72,13 +72,13 @@ export async function getJob(id: string): Promise<Job | undefined> {
   return mem.get(id);
 }
 
-export async function updateJob(id: string, patch: Partial<Job>): Promise<void> {
+// Persist the full job in one SET. The runner owns the job object and is its only writer
+// after createJob, so a wholesale save needs no read-modify-write — race-free, half the KV
+// ops of a get-then-set. KEEPTTL preserves the expiry set by createJob.
+export async function saveJob(job: Job): Promise<void> {
   if (useKv) {
-    const current = await getJob(id);
-    if (!current) return;
-    await kvCommand(["SET", key(id), JSON.stringify({ ...current, ...patch }), "KEEPTTL"]);
+    await kvCommand(["SET", key(job.id), JSON.stringify(job), "KEEPTTL"]);
     return;
   }
-  const current = mem.get(id);
-  if (current) mem.set(id, { ...current, ...patch });
+  mem.set(job.id, job);
 }
