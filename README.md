@@ -102,16 +102,21 @@ production persistence is the Supabase swap noted below.
 
 ## Deploy to Vercel
 
-The app is serverless-ready: the job store uses **Vercel KV (Upstash Redis)** in production
-(shared across function instances) and an in-memory fallback locally, and the background
-worker runs via Next's `after()` so it survives the response.
+The app is serverless-ready: the job store is shared across function instances (so the POST
+that starts a job and the polling GET agree), and the background worker runs via Next's
+`after()` so it survives the response. The store auto-selects a backend by env vars:
+**Supabase > Vercel KV > in-memory** (local dev).
 
 1. **Import the repo.** Vercel → Add New → Project → import this GitHub repo. Next.js is
    auto-detected; deploy.
-2. **Attach KV.** Vercel → Storage → Create → KV / Upstash Redis → connect to the project.
-   This injects `KV_REST_API_URL` + `KV_REST_API_TOKEN` automatically. Redeploy.
-   **Without KV the async flow won't work on serverless** (POST and the polling GET land on
-   different instances) — sample reports would hang. KV is the one required add-on.
+2. **Attach a store (required).** Without one, the async flow won't work on serverless (POST
+   and the polling GET land on different instances) — sample reports would hang. Pick one:
+   - **Supabase** (persistent share links): create the `jobs` table (SQL in
+     `src/jobs/store.ts`), then set `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` in Project
+     Settings → Environment Variables.
+   - **Vercel KV** (one-click, 1h TTL): Storage → Create → KV / Upstash Redis → connect to
+     the project (auto-injects `KV_REST_API_URL` + `KV_REST_API_TOKEN`).
+   Redeploy after either.
 3. **(Live URLs only)** add `ANTHROPIC_API_KEY` + `FIRECRAWL_API_KEY` in Project Settings →
    Environment Variables. Sample reports need neither.
 

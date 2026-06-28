@@ -1,11 +1,21 @@
-// Async job store. Two backends, chosen at runtime:
-//   - Vercel KV / Upstash Redis (when KV_REST_API_URL + token are set) — required on
-//     serverless so the POST that creates a job and the polling GET (possibly different
-//     lambda instances) share state, and the report survives the function freezing.
-//   - In-memory Map fallback for local `npm run dev` (zero config).
+// Async job store with pluggable backends, picked at runtime by which env vars are set:
+//   1. Supabase (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY) — Postgres, persistent (PRD §6.1).
+//      Share links survive indefinitely. Requires a `jobs` table (see README / SQL below).
+//   2. Vercel KV / Upstash Redis (KV_REST_API_URL or UPSTASH_REDIS_REST_URL + token) — fast,
+//      1h TTL (ephemeral share links).
+//   3. In-memory Map — local `npm run dev` fallback, zero config.
 //
-// KV is driven through Upstash's REST API with fetch — no SDK dependency, same pattern as
-// the Anthropic/Firecrawl clients. Jobs expire after 1h (ephemeral V1 share links).
+// All backends are driven through their REST APIs with fetch — no SDK dependency. The runner
+// owns the job object and is its only writer after createJob, so `save` is a wholesale upsert
+// (no read-modify-write).
+//
+// Supabase `jobs` table:
+//   create table if not exists jobs (
+//     id uuid primary key,
+//     data jsonb not null,
+//     created_at timestamptz not null default now()
+//   );
+//   alter table jobs enable row level security;  -- service role bypasses RLS; clients use our API, not Supabase directly
 
 import type { Report } from "../engine/types.ts";
 
@@ -22,30 +32,91 @@ export interface Job {
   createdAt: number;
 }
 
+interface Backend {
+  get(id: string): Promise<Job | undefined>;
+  save(job: Job): Promise<void>;
+}
+
 const TTL_SECONDS = 3600;
 
-// Accept either Vercel KV (KV_REST_API_*) or the Upstash marketplace (UPSTASH_REDIS_REST_*).
-const KV_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
-const useKv = Boolean(KV_URL && KV_TOKEN);
-
-// In-memory fallback (dev). globalThis-attached so it survives HMR/module duplication.
-const g = globalThis as unknown as { __mcJobs?: Map<string, Job> };
-const mem: Map<string, Job> = g.__mcJobs ?? (g.__mcJobs = new Map());
-
-const key = (id: string) => `job:${id}`;
-
-async function kvCommand(cmd: string[]): Promise<unknown> {
-  const res = await fetch(KV_URL as string, {
-    method: "POST",
-    headers: { authorization: `Bearer ${KV_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify(cmd),
-  });
-  if (!res.ok) throw new Error(`KV ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { result?: unknown; error?: string };
-  if (data.error) throw new Error(`KV error: ${data.error}`);
-  return data.result ?? null;
+// ---- Supabase (PostgREST) ----
+function supabaseBackend(url: string, key: string): Backend {
+  const endpoint = `${url.replace(/\/+$/, "")}/rest/v1/jobs`;
+  const headers = {
+    apikey: key,
+    authorization: `Bearer ${key}`,
+    "content-type": "application/json",
+  };
+  return {
+    async get(id) {
+      const res = await fetch(`${endpoint}?id=eq.${id}&select=data`, { headers });
+      if (!res.ok) throw new Error(`Supabase get ${res.status}: ${await res.text()}`);
+      const rows = (await res.json()) as Array<{ data: Job }>;
+      return rows[0]?.data;
+    },
+    async save(job) {
+      const res = await fetch(`${endpoint}?on_conflict=id`, {
+        method: "POST",
+        headers: { ...headers, prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ id: job.id, data: job }),
+      });
+      if (!res.ok) throw new Error(`Supabase save ${res.status}: ${await res.text()}`);
+    },
+  };
 }
+
+// ---- Vercel KV / Upstash Redis (REST) ----
+function kvBackend(url: string, token: string): Backend {
+  const command = async (cmd: string[]): Promise<unknown> => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(cmd),
+    });
+    if (!res.ok) throw new Error(`KV ${res.status}: ${await res.text()}`);
+    const data = (await res.json()) as { result?: unknown; error?: string };
+    if (data.error) throw new Error(`KV error: ${data.error}`);
+    return data.result ?? null;
+  };
+  const key = (id: string) => `job:${id}`;
+  return {
+    async get(id) {
+      const raw = (await command(["GET", key(id)])) as string | null;
+      return raw ? (JSON.parse(raw) as Job) : undefined;
+    },
+    async save(job) {
+      await command(["SET", key(job.id), JSON.stringify(job), "EX", String(TTL_SECONDS)]);
+    },
+  };
+}
+
+// ---- In-memory (local dev) ----
+function memoryBackend(): Backend {
+  const g = globalThis as unknown as { __mcJobs?: Map<string, Job> };
+  const map = g.__mcJobs ?? (g.__mcJobs = new Map());
+  return {
+    async get(id) {
+      return map.get(id);
+    },
+    async save(job) {
+      map.set(job.id, job);
+    },
+  };
+}
+
+function pickBackend(): Backend {
+  const supaUrl = process.env.SUPABASE_URL;
+  const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (supaUrl && supaKey) return supabaseBackend(supaUrl, supaKey);
+
+  const kvUrl = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const kvToken = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (kvUrl && kvToken) return kvBackend(kvUrl, kvToken);
+
+  return memoryBackend();
+}
+
+const backend = pickBackend();
 
 export async function createJob(init: { url: string; mode: "live" | "demo" }): Promise<Job> {
   const job: Job = {
@@ -56,29 +127,14 @@ export async function createJob(init: { url: string; mode: "live" | "demo" }): P
     mode: init.mode,
     createdAt: Date.now(),
   };
-  if (useKv) {
-    await kvCommand(["SET", key(job.id), JSON.stringify(job), "EX", String(TTL_SECONDS)]);
-  } else {
-    mem.set(job.id, job);
-  }
+  await backend.save(job);
   return job;
 }
 
-export async function getJob(id: string): Promise<Job | undefined> {
-  if (useKv) {
-    const raw = (await kvCommand(["GET", key(id)])) as string | null;
-    return raw ? (JSON.parse(raw) as Job) : undefined;
-  }
-  return mem.get(id);
+export function getJob(id: string): Promise<Job | undefined> {
+  return backend.get(id);
 }
 
-// Persist the full job in one SET. The runner owns the job object and is its only writer
-// after createJob, so a wholesale save needs no read-modify-write — race-free, half the KV
-// ops of a get-then-set. KEEPTTL preserves the expiry set by createJob.
-export async function saveJob(job: Job): Promise<void> {
-  if (useKv) {
-    await kvCommand(["SET", key(job.id), JSON.stringify(job), "KEEPTTL"]);
-    return;
-  }
-  mem.set(job.id, job);
+export function saveJob(job: Job): Promise<void> {
+  return backend.save(job);
 }
