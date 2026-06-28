@@ -104,19 +104,23 @@ function memoryBackend(): Backend {
   };
 }
 
-function pickBackend(): Backend {
+function pickBackend(): { backend: Backend; name: string } {
   const supaUrl = process.env.SUPABASE_URL;
   const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (supaUrl && supaKey) return supabaseBackend(supaUrl, supaKey);
+  if (supaUrl && supaKey) return { backend: supabaseBackend(supaUrl, supaKey), name: "supabase" };
 
   const kvUrl = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
   const kvToken = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (kvUrl && kvToken) return kvBackend(kvUrl, kvToken);
+  if (kvUrl && kvToken) return { backend: kvBackend(kvUrl, kvToken), name: "kv" };
 
-  return memoryBackend();
+  return { backend: memoryBackend(), name: "in-memory" };
 }
 
-const backend = pickBackend();
+const picked = pickBackend();
+const backend = picked.backend;
+
+/** Which store backend is active, for diagnostics (see scripts/check-store.ts). */
+export const storeBackend = picked.name;
 
 export async function createJob(init: { url: string; mode: "live" | "demo" }): Promise<Job> {
   const job: Job = {
