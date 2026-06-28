@@ -117,9 +117,10 @@ worker runs via Next's `after()` so it survives the response.
 
 CLI alternative: `vercel` (link/first deploy) then `vercel --prod`.
 
-> `maxDuration` is set to 60s on the analyze route (Hobby ceiling). Live runs of large sites
-> (crawl + 5 LLM calls) can approach it; the async job model is what V2's queue/streaming
-> upgrade addresses.
+> `maxDuration` is set to 300s on the analyze route via the in-code segment config (the
+> Vercel-recommended method for App Router — no `vercel.json` needed). 300s is Hobby's max
+> with fluid compute and safe on Pro/Enterprise. It covers the `after()` background work
+> (crawl + 5 LLM calls); a dedicated queue/streaming pipeline is the V2 upgrade.
 
 ## Going live
 

@@ -9,7 +9,10 @@ import { runJob } from "../../../src/jobs/runner.ts";
 import { createJob } from "../../../src/jobs/store.ts";
 
 export const runtime = "nodejs";
-export const maxDuration = 60; // allow live runs (crawl + 5 LLM calls) to finish in `after()`
+// In-code config is the Vercel-recommended way to set duration for App Router (no
+// vercel.json needed). 300s is Hobby's max with fluid compute and is safely within Pro/Ent
+// limits; it covers the `after()` background work (crawl + 5 LLM calls) end to end.
+export const maxDuration = 300;
 
 export async function POST(req: Request): Promise<Response> {
   const body = (await req.json().catch(() => ({}))) as { url?: string; demo?: string };
