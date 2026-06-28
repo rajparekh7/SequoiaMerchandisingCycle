@@ -11,7 +11,7 @@
     "test": "node --test src/engine/__tests__/*.test.ts src/crawl/__tests__/*.test.ts",
     "demo": "node scripts/demo.ts",
     "analyze": "node scripts/analyze.ts",
-    "check-store": "node --env-file=.env.local scripts/check-store.ts"
+    "check-store": "node --env-file-if-exists=.env.local scripts/check-store.ts"
   },
   "engines": {
     "node": ">=22"
