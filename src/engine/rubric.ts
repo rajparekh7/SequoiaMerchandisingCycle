@@ -1,7 +1,7 @@
-// Point-anchored rubrics (PRD §12). v1 deliberately replaces v1-draft's prose bands
-// ("80–100: H1 is outcome-driven…") with fixed point contributions, so the same
-// observation maps to the same points every run. These feed BOTH the LLM prompt
-// (what to look for) and human-readable report copy.
+// Point-anchored rubrics (PRD §12). Fixed point contributions (vs. prose bands) so the same
+// observation maps to the same points every run. These feed BOTH the LLM prompt (what to look
+// for) and human-readable report copy. Criteria and weights derive from the canonical
+// knowledge base — see docs/sequoia-merchandising-cycle.md §13 (Scoring Benchmarks).
 
 import type { StageId } from "./types.ts";
 
@@ -16,11 +16,12 @@ export const FLAG_THRESHOLDS = { red: 50, yellow: 80 } as const; // <50 red, <80
 
 export const RUBRICS: Record<StageId, RubricCriterion[]> = {
   vision: [
-    { id: "icp_named", label: "About/mission names the exact ICP (role + segment)", points: 25 },
-    { id: "economic_problem", label: "States the economic problem solved, not a generic mission", points: 20 },
-    { id: "market_thesis", label: "Articulates a defensible market thesis / why-now", points: 20 },
-    { id: "founder_credibility", label: "Founder/team expertise signals present", points: 15 },
-    { id: "investor_logos", label: "Investor or customer-logo credibility", points: 20 },
+    { id: "icp_named", label: "Names the exact ICP — specific enough to list 50 companies that fit (not 'everyone')", points: 25 },
+    { id: "economic_problem", label: "States the urgent economic problem (a painkiller, not a vitamin) — not a generic mission", points: 20 },
+    { id: "market_thesis", label: "Articulates a defensible market thesis / why-now", points: 15 },
+    { id: "founder_expertise", label: "Founder domain expertise / lived-the-pain signals", points: 15 },
+    { id: "arguable_pov", label: "A clear point of view someone could disagree with (vague vision = weak vision)", points: 10 },
+    { id: "credibility_logos", label: "Credible investor or named-customer validation", points: 15 },
   ],
   product_management: [
     { id: "features_depth", label: "Product/features page explains real capabilities", points: 25 },

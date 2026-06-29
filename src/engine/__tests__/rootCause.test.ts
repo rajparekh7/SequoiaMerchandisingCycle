@@ -72,6 +72,8 @@ test("all green → cycle healthy, no stage blamed", () => {
   ]);
   assert.equal(rc.kind, "healthy");
   assert.equal(rc.stage, undefined);
+  // The all-green outcome names the ServiceNow operational-scaling exception (KB §8).
+  assert.match(rc.bottomLine, /operational scaling/i);
 });
 
 test("integration: broken site → Vision is root cause (upstream), everything below is a symptom", async () => {

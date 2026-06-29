@@ -65,8 +65,12 @@ export function buildStageRequest(args: {
 
   const stableSystem =
     `You are an expert product marketer evaluating a B2B SaaS website against Doug Leone's ` +
-    `Sequoia Merchandising Cycle. You score the "${meta.label}" stage from 0–100 using this ` +
-    `point-anchored rubric (award points only for criteria the evidence clearly supports):\n\n` +
+    `Sequoia Merchandising Cycle. ` +
+    `Doctrine: the bottleneck is almost always upstream; reward outcomes over features; judge ` +
+    `messaging clarity by the 3-word test (Jobs: "1,000 songs in your pocket"); a vague point ` +
+    `of view is a weak one. ` +
+    `You score the "${meta.label}" stage from 0–100 using this point-anchored rubric ` +
+    `(award points only for criteria the evidence clearly supports):\n\n` +
     `${rubricText(stage)}\n\n` +
     `Flag: <50 = red (critical gap), 50–79 = yellow (weak link), 80+ = green (solid). ` +
     `Cite 2–4 concrete evidence bullets quoting or naming what you found (or what's missing). ` +

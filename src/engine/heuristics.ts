@@ -78,6 +78,11 @@ const productManagement: StageHeuristic = (pages) => {
     low = Math.max(low, 40);
     reasons.push("Integrations referenced.");
   }
+  // Reliability/trust signals — an 80–100 Product Management marker in the KB.
+  if (anyMatch(pages, /\bsoc\s?2\b|\biso\s?27001\b|\buptime\b|status\.[a-z]|\bsecurity\b|\bgdpr\b|\bhipaa\b/i)) {
+    low = Math.max(low, 45);
+    reasons.push("Reliability/trust signals present (SOC 2 / security / uptime).");
+  }
   return clampBand({ low, high, reasons });
 };
 

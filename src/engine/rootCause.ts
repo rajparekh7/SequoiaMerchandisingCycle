@@ -62,7 +62,7 @@ export function computeRootCause(stages: StageScore[]): RootCause {
   return {
     kind: "healthy",
     bottomLine:
-      "The cycle is healthy publicly. If growth is still stalled, look at (a) internal ops / churn, or (b) the vision may be right but the market is smaller than assumed.",
+      "The merchandising cycle looks healthy publicly — like ServiceNow's 'B-team' selling fine because everything upstream was dialed in. If growth is still stalled, the bottleneck is likely NOT the cycle: look at (a) operational scaling — can the company keep up with demand? (the ServiceNow ~90-days-from-death exception: a working cycle ≠ a healthy company), (b) churn / customer success, or (c) the vision may be right but the market smaller than assumed.",
     downstreamSymptoms: [],
   };
 }

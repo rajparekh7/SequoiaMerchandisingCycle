@@ -46,6 +46,16 @@ test("noun inconsistency is judged on core pages, not the blog (Ramp.com false-p
   );
 });
 
+test("reliability signals (SOC 2 / uptime) floor Product Management", () => {
+  const pages: CrawledPage[] = [
+    { url: "https://x.com/", type: "homepage", markdown: "# Home" },
+    { url: "https://x.com/security", type: "docs", markdown: "SOC 2 Type II compliant, 99.99% uptime." },
+  ];
+  const band = bandFor("product_management", pages);
+  assert.ok(band.low >= 45, `expected reliability floor (low >= 45), got ${band.low}`);
+  assert.ok(band.reasons.some((r) => /reliability|soc 2/i.test(r)), "reliability reason recorded");
+});
+
 test("a cap always beats a floor — low is never above high, for every stage & fixture", () => {
   for (const site of [acme, midco, brokenco]) {
     for (const meta of STAGES) {

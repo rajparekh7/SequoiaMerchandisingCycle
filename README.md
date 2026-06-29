@@ -5,7 +5,10 @@ Cycle — which of the five stages (Vision → Product Management → Product Ma
 Demand Generation → Sales) is the **probable root cause** of stalled growth, and the
 prioritized fixes.
 
-See [PRD.md](PRD.md) for the full product spec (v2).
+See [PRD.md](PRD.md) for the full product spec (v2), and
+[docs/sequoia-merchandising-cycle.md](docs/sequoia-merchandising-cycle.md) for the canonical
+framework knowledge base the rubrics, heuristics, recommendations, and root-cause rule derive
+from.
 
 ## Status: Phase A — scoring engine + crawl layer
 
