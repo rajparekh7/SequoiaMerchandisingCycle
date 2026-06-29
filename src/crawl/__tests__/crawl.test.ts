@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { crawlSite, selectUrls } from "../crawl.ts";
+import { crawlSite, extractLinks, selectUrls } from "../crawl.ts";
 import type { PageFetcher, ScrapedPage } from "../crawl.ts";
 
 const ROOT = "https://x.com/";
@@ -33,6 +33,35 @@ test("selectUrls prioritizes high-value page types and caps the count", () => {
   assert.equal(out.length, 3);
   // homepage, then pricing & about win over blog/careers
   assert.deepEqual(out, ["https://x.com/", "https://x.com/pricing", "https://x.com/about"]);
+});
+
+test("extractLinks resolves relative links and keeps only same-origin", () => {
+  const md =
+    "[Pricing](/pricing) [About](https://x.com/company) [Twitter](https://twitter.com/acme) [Docs](docs)";
+  const links = extractLinks(md, ROOT);
+  assert.ok(links.includes("https://x.com/pricing"), "relative /pricing resolved");
+  assert.ok(links.includes("https://x.com/company"), "absolute same-origin kept");
+  assert.ok(links.includes("https://x.com/docs"), "bare-relative 'docs' resolved");
+  assert.ok(!links.some((l) => l.includes("twitter.com")), "cross-origin excluded");
+});
+
+test("crawlSite discovers structural pages from homepage links (not just /map)", async () => {
+  // /map is empty and the real about page is at a NON-standard path only linked from home.
+  const fetcher: PageFetcher = {
+    async map() {
+      return [];
+    },
+    async scrape(url: string) {
+      if (url === "https://x.com/") return { url, markdown: "# Home\n[Our story](/why-us)" };
+      if (url === "https://x.com/why-us") return { url, markdown: "## About\nOur mission, built for teams" };
+      return null;
+    },
+  };
+  const { pages } = await crawlSite({ rootUrl: ROOT, fetcher });
+  assert.ok(
+    pages.some((p) => p.url === "https://x.com/why-us"),
+    "non-standard about page discovered via homepage link",
+  );
 });
 
 class MockFetcher implements PageFetcher {

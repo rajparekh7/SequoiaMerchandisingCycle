@@ -42,8 +42,13 @@ export class FirecrawlFetcher implements PageFetcher {
     });
     if (!res.ok) return null; // blocked / 4xx / 5xx → treated as a scrape failure (partial crawl)
     const data = (await res.json()) as {
-      data?: { markdown?: string; metadata?: { title?: string | string[] } };
+      data?: { markdown?: string; metadata?: { title?: string | string[]; statusCode?: number } };
     };
+    // Firecrawl returns 200 even when the TARGET page is a 404 — the real status is in
+    // metadata.statusCode. Don't ingest error pages (a scraped 404 would be misread as a
+    // real About/product page). Treat >=400 as "page not found".
+    const status = data.data?.metadata?.statusCode;
+    if (typeof status === "number" && status >= 400) return null;
     const markdown = data.data?.markdown;
     if (!markdown) return null;
     // v2 documents metadata.title as string OR string[] — normalize to a single string.

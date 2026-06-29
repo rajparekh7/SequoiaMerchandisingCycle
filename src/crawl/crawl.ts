@@ -98,6 +98,29 @@ function normalize(url: string): string {
 }
 
 /**
+ * Pull same-origin links out of a page's markdown (nav/footer/body), resolving relative
+ * hrefs against the root. The homepage's own links are the most reliable way to discover a
+ * site's real structural pages — far better than guessing paths, since /about may actually
+ * live at /company/about or /why-ramp.
+ */
+export function extractLinks(markdown: string, rootUrl: string): string[] {
+  const root = normalize(rootUrl);
+  const out = new Set<string>();
+  const targets: string[] = [];
+  for (const m of markdown.matchAll(/\]\(\s*([^)\s]+)\s*\)/g)) targets.push(m[1]!); // markdown links
+  for (const m of markdown.matchAll(/https?:\/\/[^\s)<>"'\]]+/g)) targets.push(m[0]); // bare URLs
+  for (const t of targets) {
+    try {
+      const abs = normalize(new URL(t, root).toString());
+      if (sameOrigin(abs, root)) out.add(abs);
+    } catch {
+      /* not a resolvable URL */
+    }
+  }
+  return [...out];
+}
+
+/**
  * Pure URL selection: same-origin, within depth, deduped, prioritized by type, capped.
  * The root is always included as the homepage (first), even if /map didn't return it.
  */
@@ -139,6 +162,14 @@ export async function crawlSite(args: {
   const { rootUrl, fetcher, options } = args;
   const root = normalize(rootUrl);
 
+  // Phase 1 — scrape the homepage first. Its nav/footer links are the most reliable way to
+  // find the site's REAL structural pages (whatever paths they live at).
+  const homeScrape = await fetcher.scrape(root).catch(() => null);
+  const homeLinks = homeScrape ? extractLinks(homeScrape.markdown, root) : [];
+
+  // Phase 2 — discover candidates from /map (best-effort) + homepage links + common-path
+  // probes. /map often misses structural pages on JS sites; homepage links + probes recover
+  // them so a missing page isn't silently scored as ABSENT (false "red" stages).
   let mapCandidates: string[] = [];
   let mapFailed = false;
   try {
@@ -146,31 +177,31 @@ export async function crawlSite(args: {
   } catch {
     mapFailed = true;
   }
-
-  // Seed discovery with common high-value paths. Firecrawl /map (especially on JS-heavy
-  // sites) routinely misses structural pages like /pricing and /about — and a page that's
-  // never discovered gets scored as ABSENT, producing false "red" stages. Probing these
-  // guarantees we at least attempt them.
   const probes = COMMON_PATHS.map((p) => normalize(new URL(`/${p}`, root).toString()));
-  const mapSet = new Set(mapCandidates.map(normalize));
+  // "Discovered" = real signals (map + homepage links). A discovered essential page that
+  // fails to scrape lowers confidence; a speculative probe that 404s does not.
+  const discovered = new Set<string>([...mapCandidates.map(normalize), ...homeLinks]);
 
-  const urls = selectUrls(root, [...mapCandidates, ...probes], options);
+  const urls = selectUrls(root, [...discovered, ...probes], options).filter((u) => u !== root);
   const scraped = await mapLimit(urls, options?.concurrency ?? 5, (u) =>
     fetcher.scrape(u).catch(() => null),
   );
 
-  // Only an ESSENTIAL page failing should lower confidence — a dropped blog post or careers
-  // page shouldn't stamp "partial" on stages it never fed into. And a speculative PROBE that
-  // 404s just means the page doesn't exist there, so it shouldn't flag partial either —
-  // only count failures for pages that were actually discovered in the map.
   const ESSENTIAL: ReadonlySet<PageType> = new Set(["homepage", "pricing", "about", "product"]);
   const pages: CrawledPage[] = [];
+  if (homeScrape) {
+    pages.push({
+      url: homeScrape.url,
+      type: classifyPage({ url: homeScrape.url, rootUrl: root, markdown: homeScrape.markdown, title: homeScrape.title }),
+      markdown: homeScrape.markdown,
+    });
+  }
   let essentialFailure = false;
   for (let i = 0; i < urls.length; i++) {
     const s = scraped[i];
     if (!s) {
       const u = urls[i]!;
-      if (mapSet.has(u) && ESSENTIAL.has(typeFromUrl(u, root))) essentialFailure = true;
+      if (discovered.has(u) && ESSENTIAL.has(typeFromUrl(u, root))) essentialFailure = true;
       continue;
     }
     pages.push({
@@ -180,7 +211,7 @@ export async function crawlSite(args: {
     });
   }
 
-  // Partial if the map failed, an essential page failed to scrape, or we never got the homepage.
+  // Partial if the map failed, an essential discovered page failed, or we never got the homepage.
   const partialCrawl = mapFailed || essentialFailure || !pages.some((p) => p.type === "homepage");
   return { pages, partialCrawl };
 }
